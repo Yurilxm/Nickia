@@ -1,10 +1,9 @@
-﻿// Aba "Editar vídeo" com trilha visual + corte de áudio e vídeo.
+﻿// Aba "Editar vídeo" com trilha visual, corte e preview sincronizado.
 import * as api from "./api.js";
 import { $, showMsg, hideMsg, setProgress, STAGE_LABEL } from "./ui.js";
 import { modalAlert } from "./modal.js";
 
 let videoPreviewUrl = null;
-let previewAudioEl = null;
 
 const wf = {
   samples: null, duration: 0, trimStart: 0, trimEnd: 0,
@@ -16,7 +15,20 @@ const vt = {
   dragging: null, canvas: null, ctx: null, dpr: 1,
 };
 
+const preview = {
+  active: false,
+  audio: null,
+  rafId: null,
+  stopping: false,
+  videoListenerAttached: false,
+};
+
+// ============================================================
+// INIT
+// ============================================================
 export function init() {
+  console.log("[video] init");
+
   const vidFileEl = $("#vidFile");
   if (vidFileEl) vidFileEl.addEventListener("change", onFileSelected);
 
@@ -25,6 +37,9 @@ export function init() {
     vidVolEl.addEventListener("input", (e) => {
       const lbl = $("#vidVolVal");
       if (lbl) lbl.textContent = e.target.value + "%";
+      // aplica volume ao video imediatamente (tambem serve para a previa)
+      const v = $("#vidPreview");
+      if (v) v.volume = parseFloat(e.target.value) / 100;
       updateModeHint();
     });
   }
@@ -36,12 +51,24 @@ export function init() {
   if (btnVideo) btnVideo.addEventListener("click", onGenerate);
 
   const btnPreview = $("#btnPreviewTrim");
-  if (btnPreview) btnPreview.addEventListener("click", previewTrim);
+  if (btnPreview) btnPreview.addEventListener("click", previewTrimOnly);
+
+  const btnPreviewAll = $("#btnPreviewAll");
+  if (btnPreviewAll) {
+    btnPreviewAll.addEventListener("click", () => {
+      if (preview.active) stopPreview();
+      else startFullPreview();
+    });
+  }
 
   document.querySelectorAll('input[name="vidmode"]').forEach(r => {
-    r.addEventListener("change", updateModeHint);
+    r.addEventListener("change", () => {
+      stopPreview();
+      updateModeHint();
+    });
   });
 
+  // Canvas do audio
   wf.canvas = $("#waveformCanvas");
   if (wf.canvas) {
     wf.ctx = wf.canvas.getContext("2d");
@@ -51,6 +78,7 @@ export function init() {
     window.addEventListener("mouseup", () => { wf.dragging = null; });
   }
 
+  // Canvas do video
   vt.canvas = $("#videoTimelineCanvas");
   if (vt.canvas) {
     vt.ctx = vt.canvas.getContext("2d");
@@ -75,7 +103,166 @@ export function init() {
   setTimeout(updateModeHint, 500);
 }
 
-// ---------- hint ----------
+// ============================================================
+// PREVIEW SINCRONIZADO
+// ============================================================
+function attachVideoListeners() {
+  if (preview.videoListenerAttached) return;
+  const v = $("#vidPreview");
+  if (!v) return;
+  v.addEventListener("pause", () => {
+    if (preview.active && !preview.stopping) stopPreview();
+  });
+  v.addEventListener("ended", () => {
+    if (preview.active) stopPreview();
+  });
+  preview.videoListenerAttached = true;
+}
+
+async function startFullPreview() {
+  const videoFile = $("#vidFile")?.files?.[0];
+  if (!videoFile) {
+    modalAlert("Falta o vídeo", "Escolha o vídeo primeiro para poder pré-visualizar.");
+    return;
+  }
+  const audioJid = currentAudioJid();
+  if (!audioJid) {
+    modalAlert("Falta a narração", "Escolha uma narração primeiro para poder pré-visualizar.");
+    return;
+  }
+  if (vt.duration <= 0 || !wf.samples) {
+    modalAlert("Nada para pré-visualizar", "Escolha vídeo e narração primeiro.");
+    return;
+  }
+
+  stopPreview();
+  attachVideoListeners();
+
+  const v = $("#vidPreview");
+  v.volume = parseFloat($("#vidVol").value) / 100;
+  v.currentTime = vt.trimStart;
+
+  preview.audio = new Audio(`/outputs/${audioJid}.wav?t=${Date.now()}`);
+  preview.audio.currentTime = wf.trimStart;
+  preview.audio.volume = 1.0;
+
+  preview.active = true;
+  updatePreviewButton();
+
+  // Rola ate o player para ela ver
+  try { v.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
+
+  try {
+    await v.play();
+  } catch (e) {
+    console.error("[preview] play falhou:", e);
+    modalAlert("Não foi possível iniciar", "Clique no player e tente novamente.");
+    stopPreview();
+    return;
+  }
+
+  try {
+    await preview.audio.play();
+  } catch (e) {
+    console.warn("[preview] audio play falhou:", e);
+  }
+
+  preview.rafId = requestAnimationFrame(previewTick);
+}
+
+function previewTick() {
+  if (!preview.active) return;
+  const v = $("#vidPreview");
+  if (!v || v.paused || v.ended) {
+    stopPreview();
+    return;
+  }
+
+  const mode = currentMode();
+  const videoElapsed = v.currentTime - vt.trimStart;
+
+  // Fim natural
+  if (v.currentTime >= vt.trimEnd - 0.05) {
+    stopPreview();
+    return;
+  }
+
+  if (!preview.audio) {
+    preview.rafId = requestAnimationFrame(previewTick);
+    return;
+  }
+
+  // Calcula posicao esperada do audio
+  if (mode === "loop") {
+    const aDur = Math.max(0.05, wf.trimEnd - wf.trimStart);
+    const aElapsed = videoElapsed % aDur;
+    const expected = wf.trimStart + aElapsed;
+    if (preview.audio.ended || Math.abs(preview.audio.currentTime - expected) > 0.4) {
+      preview.audio.currentTime = expected;
+      if (preview.audio.paused) preview.audio.play().catch(() => {});
+    }
+  } else if (mode === "match_audio") {
+    // Toca tudo, deixa video seguir se for mais curto (nao congela no navegador)
+    const expected = wf.trimStart + videoElapsed;
+    if (expected >= wf.trimEnd) {
+      if (!preview.audio.paused) preview.audio.pause();
+    } else {
+      if (preview.audio.paused) preview.audio.play().catch(() => {});
+      if (Math.abs(preview.audio.currentTime - expected) > 0.4) {
+        preview.audio.currentTime = expected;
+      }
+    }
+  } else {
+    // modo "auto"
+    const expected = wf.trimStart + videoElapsed;
+    if (expected >= wf.trimEnd) {
+      if (!preview.audio.paused) preview.audio.pause();
+    } else {
+      if (preview.audio.paused) preview.audio.play().catch(() => {});
+      if (Math.abs(preview.audio.currentTime - expected) > 0.3) {
+        preview.audio.currentTime = expected;
+      }
+    }
+  }
+
+  preview.rafId = requestAnimationFrame(previewTick);
+}
+
+function stopPreview() {
+  preview.stopping = true;
+  preview.active = false;
+
+  if (preview.audio) {
+    try { preview.audio.pause(); } catch (_) {}
+    preview.audio = null;
+  }
+  if (preview.rafId) {
+    cancelAnimationFrame(preview.rafId);
+    preview.rafId = null;
+  }
+  const v = $("#vidPreview");
+  if (v && !v.paused) {
+    try { v.pause(); } catch (_) {}
+  }
+  updatePreviewButton();
+  setTimeout(() => { preview.stopping = false; }, 60);
+}
+
+function updatePreviewButton() {
+  const btn = $("#btnPreviewAll");
+  if (!btn) return;
+  if (preview.active) {
+    btn.innerHTML = '<i class="ri-stop-circle-line"></i> Parar prévia';
+    btn.classList.add("preview-active");
+  } else {
+    btn.innerHTML = '<i class="ri-play-circle-line"></i> Pré-visualizar';
+    btn.classList.remove("preview-active");
+  }
+}
+
+// ============================================================
+// MODO (hint)
+// ============================================================
 function currentMode() {
   const el = document.querySelector('input[name="vidmode"]:checked');
   return el ? el.value : "auto";
@@ -129,7 +316,9 @@ function updateModeHint() {
   el.classList.toggle("warn", warn);
 }
 
-// ---------- audio waveform ----------
+// ============================================================
+// AUDIO WAVEFORM
+// ============================================================
 function currentAudioJid() {
   const v = $("#vidAudio")?.value;
   if (!v) return null;
@@ -137,6 +326,7 @@ function currentAudioJid() {
 }
 
 function onFileSelected(e) {
+  stopPreview();
   const f = e.target.files[0];
   if (!f) return;
   if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
@@ -145,6 +335,7 @@ function onFileSelected(e) {
   const wrap = $("#vidPreviewWrap");
   if (!v || !wrap) return;
   v.src = videoPreviewUrl;
+  v.volume = parseFloat($("#vidVol").value) / 100;
   wrap.style.display = "block";
   v.addEventListener("loadedmetadata", () => {
     const dur = v.duration;
@@ -166,6 +357,7 @@ function onFileSelected(e) {
 }
 
 async function onAudioChanged() {
+  stopPreview();
   const jid = currentAudioJid();
   if (!jid) return;
   if (wf.loadedJid === jid) return;
@@ -195,7 +387,9 @@ async function loadWaveform(jid) {
   }
 }
 
-// ---------- canvas helpers ----------
+// ============================================================
+// CANVAS HELPERS
+// ============================================================
 function resizeCanvas(obj, h) {
   if (!obj.canvas) return;
   const wrap = obj.canvas.parentElement;
@@ -219,7 +413,9 @@ function drawHandles(ctx, W, H, startX, endX, dpr) {
   ctx.stroke();
 }
 
-// ---------- audio ----------
+// ============================================================
+// AUDIO TIMELINE
+// ============================================================
 function drawWaveform() {
   if (!wf.canvas || !wf.ctx) return;
   const ctx = wf.ctx;
@@ -266,6 +462,7 @@ function onAudioDown(e) {
 
 function onAudioMove(e) {
   if (!wf.dragging || !wf.canvas) return;
+  if (preview.active) stopPreview();
   const rect = wf.canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * wf.dpr;
   const W = wf.canvas.width;
@@ -277,7 +474,9 @@ function onAudioMove(e) {
   updateModeHint();
 }
 
-// ---------- video timeline ----------
+// ============================================================
+// VIDEO TIMELINE
+// ============================================================
 function drawVideoTimeline() {
   if (!vt.canvas || !vt.ctx) return;
   const ctx = vt.ctx;
@@ -324,6 +523,7 @@ function onVideoDown(e) {
 
 function onVideoMove(e) {
   if (!vt.dragging || !vt.canvas) return;
+  if (preview.active) stopPreview();
   const rect = vt.canvas.getBoundingClientRect();
   const x = (e.clientX - rect.left) * vt.dpr;
   const W = vt.canvas.width;
@@ -335,28 +535,34 @@ function onVideoMove(e) {
   updateModeHint();
 }
 
-function previewTrim() {
+// ============================================================
+// PREVIEW SO DO TRECHO DE AUDIO (botao antigo)
+// ============================================================
+function previewTrimOnly() {
   const jid = currentAudioJid();
   if (!jid || !wf.samples) return;
-  if (previewAudioEl) { previewAudioEl.pause(); previewAudioEl = null; }
+  if (preview.audio) { preview.audio.pause(); }
   const a = new Audio(`/outputs/${jid}.wav?t=${Date.now()}`);
-  previewAudioEl = a;
+  a.currentTime = wf.trimStart;
   const stopAt = wf.trimEnd;
   a.addEventListener("loadedmetadata", () => { a.currentTime = wf.trimStart; a.play(); }, { once: true });
   const check = () => {
-    if (previewAudioEl !== a) return;
-    if (a.currentTime >= stopAt) { a.pause(); previewAudioEl = null; return; }
+    if (a.currentTime >= stopAt) { a.pause(); return; }
     requestAnimationFrame(check);
   };
   requestAnimationFrame(check);
-  a.addEventListener("ended", () => { previewAudioEl = null; });
 }
 
+// ============================================================
+// GERAR
+// ============================================================
 async function onGenerate() {
   const f = $("#vidFile")?.files?.[0];
   if (!f) { modalAlert("Falta o vídeo", "Escolha o vídeo da loja que você quer montar."); return; }
   const audio = $("#vidAudio")?.value;
   if (!audio) { modalAlert("Falta a narração", "Gere uma narração na aba 'Gerar áudio' primeiro."); return; }
+
+  stopPreview();
 
   hideMsg($("#smsgVideo"));
   $("#resultVideo").className = "result";
