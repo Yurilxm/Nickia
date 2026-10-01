@@ -1,0 +1,15 @@
+﻿# Nickia - dependencias (Python 3.10)
+# Instalar com:
+#   pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+#   pip install -r requirements.txt
+
+torch==2.6.0
+torchaudio==2.6.0
+chatterbox-tts @ git+https://github.com/mirbehnam/chatterbox.git@v1-cpu-multilingual
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+num2words
+unidecode
+soundfile
+numpy

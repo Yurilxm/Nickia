@@ -1,0 +1,46 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Dados do Nickia (nunca versionar)
+data/output/
+data/voices/
+models/
+logs/
+*.log
+
+# Testes e dumps
+dump.txt
+dump2.txt
+served.html
+.claude/
+.cursor/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporarios
+~$*
+*.tmp
+tmp/
+temp/
+
+# Metadados locais
+data/index.json
+
+# Scripts temporarios de patch (uso interno durante o desenvolvimento)
+scripts/_*.py
+scripts/diagnostico.py

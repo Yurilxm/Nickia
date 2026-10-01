@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nickia — Sua voz, sua loja</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">
+    <span class="dot"></span>
+    <span class="name">Nickia</span>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="audio"><i class="ri-mic-line"></i> Gerar áudio</button>
+    <button class="tab" data-tab="video"><i class="ri-movie-line"></i> Editar vídeo</button>
+  </nav>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ ABA AUDIO ============ -->
+  <section class="tab-panel active" id="panel-audio">
+
+    <div class="card">
+      <h2><i class="ri-magic-line"></i> Gerar narração</h2>
+      <p class="hint">Cole o texto que você quer falar. Pode ser a legenda de um produto, um anúncio, uma promoção.</p>
+
+      <label>Nome da narração (opcional)</label>
+      <input type="text" id="audioName" placeholder="ex.: vestido azul, promoção de natal...">
+
+      <label>Texto</label>
+      <textarea id="text" placeholder="Oi, pessoal! Hoje tem novidade na loja. Esse vestido acabou de chegar e está saindo por apenas R$ 89,90..."></textarea>
+
+      <label>Voz de referência</label>
+      <select id="voice"></select>
+
+      <details>
+        <summary><i class="ri-settings-3-line"></i> Ajustes finos (opcional)</summary>
+        <div class="row" style="margin-top:8px">
+          <div><label>Empolgação</label><input type="number" id="exaggeration" value="0.5" min="0.25" max="2" step="0.05"></div>
+          <div><label>Ritmo</label><input type="number" id="cfg_weight" value="0.5" min="0.2" max="1" step="0.05"></div>
+          <div><label>Variação</label><input type="number" id="temperature" value="0.8" min="0.1" max="1.5" step="0.05"></div>
+        </div>
+      </details>
+
+      <button id="btnAudio" class="primary-lg"><i class="ri-sparkling-2-line"></i> Gerar narração</button>
+      <button id="btnCancelAudio" class="danger" style="display:none;width:100%;margin-top:8px;padding:12px"><i class="ri-stop-circle-line"></i> Cancelar</button>
+
+      <div class="progress-box" id="pboxAudio">
+        <div class="progress-label"><span id="pstageAudio">Preparando...</span><b id="ppctAudio">0%</b></div>
+        <div class="progress-bar"><div class="progress-fill" id="pfillAudio"></div></div>
+        <div class="progress-sentence" id="psentAudio"></div>
+      </div>
+
+      <div class="status-msg" id="smsgAudio"></div>
+      <div class="result" id="resultAudio"></div>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary><i class="ri-user-voice-line"></i> Cadastrar uma nova voz</summary>
+        <p class="hint" style="margin-top:12px">
+          Grave 10–20 segundos de fala natural — sem música, sem eco, no tom de vendas.
+          Qualquer formato funciona: WhatsApp, gravador do celular, vídeo, MP3...
+        </p>
+        <label>Nome curto (só letras e números)</label>
+        <input type="text" id="vname" placeholder="ex.: mae">
+        <label>Arquivo</label>
+        <input type="file" id="vfile" accept="audio/*,video/mp4,video/quicktime,video/webm,.opus,.m4a,.wav,.mp3,.ogg,.aac">
+        <button id="vbtn" class="ghost" style="margin-top:16px"><i class="ri-upload-2-line"></i> Enviar voz</button>
+        <div class="status-msg" id="vmsg"></div>
+        <div class="voice-list" id="vlist"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary><i class="ri-book-2-line"></i> Pronúncia personalizada</summary>
+        <p class="hint" style="margin-top:12px">
+          Adicione palavras que o modelo pronuncia errado. Ex.: "leggings" → "léguins", "sale" → "seil".
+          A substituição é aplicada automaticamente em toda narração.
+        </p>
+        <div id="pronRulesList" class="pron-list"></div>
+        <div class="pron-add">
+          <input type="text" id="pronKey" placeholder="palavra original (ex.: leggings)">
+          <i class="ri-arrow-right-line"></i>
+          <input type="text" id="pronVal" placeholder="como se fala (ex.: léguins)">
+          <button id="pronAdd" class="ghost"><i class="ri-add-line"></i> Adicionar</button>
+        </div>
+        <div class="status-msg" id="pronMsg"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2><i class="ri-history-line"></i> Suas narrações</h2>
+      <p class="hint">Tudo o que você já gerou fica aqui. Você pode renomear, baixar ou excluir.</p>
+      <button id="refreshHistory" class="ghost" style="margin-bottom:8px"><i class="ri-refresh-line"></i> Atualizar</button>
+      <div id="history"></div>
+    </div>
+
+  </section>
+
+  <!-- ============ ABA VIDEO ============ -->
+  <section class="tab-panel" id="panel-video">
+
+    <div class="card">
+      <h2><i class="ri-movie-2-line"></i> Editar vídeo</h2>
+      <p class="hint">Suba o vídeo da loja, escolha uma narração e combine. Sem precisar do CapCut.</p>
+
+      <label>Vídeo</label>
+      <input type="file" id="vidFile" accept="video/*">
+
+      <div id="vidPreviewWrap" style="display:none;margin-top:16px">
+        <video id="vidPreview" controls style="width:100%;border-radius:12px;background:#000"></video>
+        <div class="hint" id="vidInfo" style="margin-top:8px"></div>
+      </div>
+
+      <label>Narração</label>
+      <select id="vidAudio"></select>
+
+      <div id="waveformSection" style="display:none">
+        <label>Trecho do áudio usado</label>
+        <div class="waveform-wrap">
+          <canvas id="waveformCanvas"></canvas>
+        </div>
+        <div class="waveform-info">
+          <span>Início: <b id="trimStartLabel">0.00s</b></span>
+          <span>Fim: <b id="trimEndLabel">0.00s</b></span>
+          <span>Duração: <b id="trimDuration">0.00s</b></span>
+          <button id="btnPreviewTrim" class="ghost preview-btn"><i class="ri-play-line"></i> Ouvir trecho</button>
+        </div>
+      </div>
+
+      <div id="videoTimelineWrap" style="display:none">
+        <label>Trecho do vídeo usado</label>
+        <div class="waveform-wrap">
+          <canvas id="videoTimelineCanvas"></canvas>
+        </div>
+        <div class="waveform-info">
+          <span>Início: <b id="vTrimStartLabel">0.00s</b></span>
+          <span>Fim: <b id="vTrimEndLabel">0.00s</b></span>
+          <span>Duração: <b id="vTrimDuration">0.00s</b></span>
+        </div>
+      </div>
+
+      <label>Como encaixar</label>
+      <div class="radios">
+        <label class="radio-opt">
+          <input type="radio" name="vidmode" value="auto" checked>
+          <span class="dot"></span>
+          <span class="lbl">Áudio normal
+            <span class="desc">Toca inteiro. Se for curto, o resto fica em silêncio.</span>
+          </span>
+        </label>
+        <label class="radio-opt">
+          <input type="radio" name="vidmode" value="loop">
+          <span class="dot"></span>
+          <span class="lbl">Repetir o áudio
+            <span class="desc">Reinicia até o vídeo terminar.</span>
+          </span>
+        </label>
+        <label class="radio-opt">
+          <input type="radio" name="vidmode" value="match_audio">
+          <span class="dot"></span>
+          <span class="lbl">Ajustar vídeo ao áudio
+            <span class="desc">Corta ou congela para durar exatamente o áudio.</span>
+          </span>
+        </label>
+      </div>
+
+      <div id="modeHint" class="mode-hint"></div>
+
+      <label>Som original do vídeo: <span id="vidVolVal">0%</span></label>
+      <input type="range" id="vidVol" min="0" max="100" step="5" value="0">
+
+      <button id="btnVideo" class="primary-lg"><i class="ri-movie-2-line"></i> Gerar vídeo</button>
+
+      <div class="progress-box" id="pboxVideo">
+        <div class="progress-label"><span id="pstageVideo">Preparando...</span><b id="ppctVideo">0%</b></div>
+        <div class="progress-bar"><div class="progress-fill" id="pfillVideo"></div></div>
+      </div>
+
+      <div class="status-msg" id="smsgVideo"></div>
+      <div class="result" id="resultVideo"></div>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>Feito com carinho para <b>sua loja</b> · Nickia v0.3</footer>
+
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
